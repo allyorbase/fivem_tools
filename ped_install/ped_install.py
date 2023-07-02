@@ -10,33 +10,39 @@ import rarfile
 import zipfile
 import tarfile
 
+from typing import Optional, Union, List, Tuple
+
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
 def extract_files(archive_path: Path, base_dir: Path, extensions: List[str], rename: Optional[str]) -> str:
     ped_name = rename
-    archive = None
 
     if archive_path.suffix == ".zip":
-        archive = ZipFile(archive_path, 'r')
+        archive = zipfile.ZipFile(archive_path, 'r')
+        filenames = archive.namelist()
+        extract_method = archive.extract
     elif archive_path.suffix == ".tar":
         archive = tarfile.open(archive_path, 'r')
+        filenames = [file.name for file in archive.getmembers()]
+        extract_method = archive.extract
     elif archive_path.suffix == ".rar":
         archive = rarfile.RarFile(archive_path, 'r')
+        filenames = archive.namelist()
+        extract_method = archive.extract
     else:
         print(f"Cannot extract files from an archive with extension '{archive_path.suffix}'")
         return None
 
     with archive:
-        for file in archive.getnames() if isinstance(archive, (rarfile.RarFile, ZipFile)) else archive.getmembers():
-            file_path = file.name if isinstance(file, tarfile.TarInfo) else file
+        for file_path in filenames:
             if file_path.endswith(tuple(extensions)):
                 if ped_name is None:
                     ped_name = Path(file_path).stem
                 # Extract the file to the base directory
-                archive.extract(file, base_dir / ped_name)
+                extract_method(file_path, base_dir / ped_name)
                 # Move the file to the top level of the created directory
-                Path(base_dir / ped_name / file_path).rename(base_dir / ped_name / Path(file_path).name)
+                (base_dir / ped_name / file_path).rename(base_dir / ped_name / (ped_name + Path(file_path).suffix))
 
     return ped_name
 
@@ -103,9 +109,10 @@ def add_ped_to_xml(ped_name, xml_path):
     tree.write(xml_path)
 
 def add_ped_to_json_vMenu(ped_name:str):
-   json_file_path = Path("~/server-data/resources/vMenu/config/addons.json").expanduser()
-   with open(json_file_path, 'r') as json_file:
+    json_file_path = Path("~/server-data/resources/vMenu/config/addons.json").expanduser()
+    with open(json_file_path, 'r') as json_file:
        data = json.load(json_file)
+
     if 'peds' in data:
         data['peds'].append(ped_name)
     else:
@@ -129,13 +136,13 @@ if __name__ == '__main__':
     parser.add_argument('--file', help="path to ped archive or directory")
     args = parser.parse_args()
 
-    if not args.url or not args.file:
+    if not args.url and not args.file:
         print("Error: Expecting a url or a file path")
-        return 1;
-
+        sys.exit(1)
+    
     if args.url:
         # download file and save to /tmp/name_of_file
-        archive_path = Path('/tmp', archive_path.split('/')[-1])
+        archive_path = Path('/tmp', args.url.split('/')[-1])
         download_file(args.url, archive_path)
     else:
         archive_path = Path(args.file)
@@ -145,7 +152,7 @@ if __name__ == '__main__':
 
     if ped_name:
         # Add to the peds.meta xml
-        update_xml(ped_name, Path("~/server-data/resources/assets/peds.meta").expanduser() )
+        add_ped_to_xml(ped_name, Path("~/server-data/resources/assets/peds.meta").expanduser() )
         print(f"Ped model '{ped_name}' has been added to peds.meta")
 
         # Add to vMenu
